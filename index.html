@@ -530,7 +530,7 @@ function renderMap() {
         rowEl.appendChild(empty);
         continue;
       }
-      const id = `${row}-${n}`;
+      const id = `Ряд ${row} Место ${n}`;
       const status = allSeats[id] || "free";
       const seat = document.createElement("div");
       seat.className = "seat" +
