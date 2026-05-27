@@ -521,16 +521,19 @@ function renderMap() {
     const lbl = document.createElement("span");
     lbl.className = "row-label"; lbl.textContent = row;
     rowEl.appendChild(lbl);
+    const seats = CONFIG.ROW_SEATS[row];
     for (let n = 1; n <= CONFIG.SEATS_PER_ROW; n++) {
-      if (n === 4 || n === 10) {
-        const aisle = document.createElement("div");
-        aisle.className = "aisle"; rowEl.appendChild(aisle);
+      if (!seats.includes(n)) {
+        const empty = document.createElement("div");
+        empty.className = "seat";
+        empty.style.visibility = "hidden";
+        rowEl.appendChild(empty);
+        continue;
       }
-      const id = `${row}${n}`;
+      const id = `${row}-${n}`;
       const status = allSeats[id] || "free";
       const seat = document.createElement("div");
       seat.className = "seat" +
-        (isVip(row) ? " vip" : "") +
         (status === "taken" ? " taken" : "") +
         (status === "pending" ? " pending" : "") +
         (selectedSeat === id ? " selected" : "");
