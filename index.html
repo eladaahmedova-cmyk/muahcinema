@@ -568,32 +568,49 @@ function updateStats() {
     `Свободно: ${free}  ·  Ожидает оплаты: ${pending}  ·  Занято: ${taken}`;
 }
 
+function seatRow(id) {
+  return id.match(/Ряд (\S+)/)?.[1] || "";
+}
+
 function selectSeat(id, row, num) {
   const idx = selectedSeats.indexOf(id);
   if (idx >= 0) {
-    selectedSeats.splice(idx, 1); // снять выбор
+    selectedSeats.splice(idx, 1);
   } else {
-    selectedSeats.push(id); // добавить к выбранным
+    selectedSeats.push(id);
   }
   renderMap();
+  updatePanel();
+}
+
+function updatePanel() {
   const panel = document.getElementById("selected-panel");
   if (selectedSeats.length === 0) {
     panel.classList.remove("visible");
     return;
   }
   panel.classList.add("visible");
-  const totalPrice = selectedSeats.reduce((sum, sid) => sum + price(sid[4]), 0);
-  const names = selectedSeats.map(sid => sid).join(", ");
-  document.getElementById("panel-seat-name").textContent = selectedSeats.length === 1
-    ? `${selectedSeats[0]}` : `${selectedSeats.length} места: ${selectedSeats.map(s => s.replace("Ряд ","р.").replace(" Место "," м.")).join(", ")}`;
-  document.getElementById("panel-seat-meta").textContent =
-    `Итого: ${selectedSeats.reduce((s, sid) => { const r = sid.match(/Ряд (\S+)/)?.[1]||""; return s + price(r); }, 0)}₽`;
+  const totalPrice = selectedSeats.reduce((s, sid) => s + price(seatRow(sid)), 0);
+  if (selectedSeats.length === 1) {
+    document.getElementById("panel-seat-name").textContent = selectedSeats[0];
+  } else {
+    const short = selectedSeats.map(s => {
+      const r = seatRow(s);
+      const m = s.match(/Место (\S+)/)?.[1] || "";
+      return `р.${r} м.${m}`;
+    }).join(", ");
+    document.getElementById("panel-seat-name").textContent = `${selectedSeats.length} места: ${short}`;
+  }
+  document.getElementById("panel-seat-meta").textContent = `Итого: ${totalPrice}₽`;
 }
 
 document.getElementById("btn-book").onclick = () => {
   if (!selectedSeats.length) return;
-  const totalPrice = selectedSeats.reduce((s, sid) => { const r = sid.match(/Ряд (\S+)/)?.[1]||""; return s + price(r); }, 0);
-  const seatList = selectedSeats.map(s => s.replace("Ряд ","р.").replace(" Место "," м.")).join(", ");
+  const totalPrice = selectedSeats.reduce((s, sid) => s + price(seatRow(sid)), 0);
+  const seatList = selectedSeats.map(s => {
+    const r = seatRow(s); const m = s.match(/Место (\S+)/)?.[1] || "";
+    return `р.${r} м.${m}`;
+  }).join(", ");
   document.getElementById("modal-book-sub").textContent =
     `${selectedSeats.length > 1 ? selectedSeats.length + " места: " + seatList : selectedSeats[0]} · ${totalPrice}₽`;
   document.getElementById("modal-pay-info").innerHTML =
@@ -615,7 +632,7 @@ async function submitBooking() {
   btn.disabled = true; btn.textContent = "Отправляем...";
 
   const groupCode = Math.random().toString(36).slice(2,8).toUpperCase();
-  const totalPrice = selectedSeats.reduce((s, sid) => { const r = sid.match(/Ряд (\S+)/)?.[1]||""; return s + price(r); }, 0);
+  const totalPrice = selectedSeats.reduce((s, sid) => s + price(seatRow(sid)), 0);
 
   try {
     // Бронируем каждое место с одним групповым кодом
@@ -630,7 +647,7 @@ async function submitBooking() {
           code: seatCode,
           groupCode,
           film: CONFIG.FILM, date: CONFIG.DATE, time: CONFIG.TIME,
-          price: price(r)
+          price: price(seatRow(seatId))
         })
       });
       const data = await res.json();
@@ -817,4 +834,6 @@ setInterval(loadSeats, 30000);
 </script>
 </body>
 </html>
+
+
 
