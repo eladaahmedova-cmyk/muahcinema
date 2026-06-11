@@ -509,6 +509,8 @@ async function loadSeats() {
     const data = await r.json();
     allSeats = data.seats || {};
     bookings = data.bookings || [];
+    // Убираем из selectedSeats места которые уже заняты (забронированы другим)
+    selectedSeats = selectedSeats.filter(id => !allSeats[id] || allSeats[id] === "free");
     renderMap();
     document.getElementById("loading-bar").style.display = "none";
     document.getElementById("seat-area").style.display = "block";
@@ -579,7 +581,13 @@ function selectSeat(id, row, num) {
   } else {
     selectedSeats.push(id);
   }
-  renderMap();
+  // Обновляем только классы без полного ререндера
+  document.querySelectorAll(".seat").forEach(el => {
+    const sid = el.dataset.id;
+    if (!sid) return;
+    const isSelected = selectedSeats.includes(sid);
+    el.classList.toggle("selected", isSelected);
+  });
   updatePanel();
 }
 
@@ -834,6 +842,8 @@ setInterval(loadSeats, 30000);
 </script>
 </body>
 </html>
+
+
 
 
 
