@@ -297,6 +297,14 @@
     transition: background 0.15s; white-space: nowrap;
   }
   .btn-cancel-book:hover { background: rgba(100,30,30,0.5); }
+  .btn-resend {
+    background: rgba(30,60,100,0.3); border: 1px solid rgba(30,60,100,0.4);
+    border-radius: 7px; color: #70a0d8; padding: 5px 10px;
+    font-size: 10px; cursor: pointer; font-family: 'Raleway', sans-serif;
+    transition: background 0.15s; white-space: nowrap; letter-spacing: 1px;
+  }
+  .btn-resend:hover { background: rgba(30,60,100,0.5); }
+  .btn-resend:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .empty-state { font-size: 12px; color: #3a3040; text-align: center; padding: 24px; }
 
@@ -359,8 +367,9 @@
 
       <div id="selected-panel">
         <div class="panel-tag">ВЫБРАНО</div>
-        <div class="panel-seat" id="panel-seat-name"></div>
+        <div class="panel-seat" id="panel-seat-name" style="font-size:18px;line-height:1.4"></div>
         <div class="panel-meta" id="panel-seat-meta"></div>
+        <div style="font-size:10px;color:#5a5060;margin-bottom:14px;letter-spacing:1px">Нажмите на место ещё раз, чтобы снять выбор</div>
         <button class="btn-primary" id="btn-book">ЗАБРОНИРОВАТЬ →</button>
       </div>
 
@@ -486,8 +495,8 @@ ROW_SEATS: {
 };
 // ════════════════════════════════════════════
 
-let selectedSeat = null;
-let allSeats = {};   // { "A1": "free"|"pending"|"taken" }
+let selectedSeats = [];  // массив выбранных мест
+let allSeats = {};   // { "Ряд X Место Y": "free"|"pending"|"taken" }
 let bookings = [];   // для admin
 
 // ── Init ──
@@ -536,7 +545,8 @@ function renderMap() {
       seat.className = "seat" +
         (status === "taken" ? " taken" : "") +
         (status === "pending" ? " pending" : "") +
-        (selectedSeat === id ? " selected" : "");
+        (selectedSeats.includes(id) ? " selected" : "") +
+        (isVip(row) ? " vip" : "");
       seat.textContent = n;
       seat.dataset.id = id;
       if (status === "free") {
@@ -559,74 +569,99 @@ function updateStats() {
 }
 
 function selectSeat(id, row, num) {
-  selectedSeat = id;
+  const idx = selectedSeats.indexOf(id);
+  if (idx >= 0) {
+    selectedSeats.splice(idx, 1); // снять выбор
+  } else {
+    selectedSeats.push(id); // добавить к выбранным
+  }
   renderMap();
-  document.querySelector(`[data-id="${id}"]`)?.classList.add("selected");
   const panel = document.getElementById("selected-panel");
+  if (selectedSeats.length === 0) {
+    panel.classList.remove("visible");
+    return;
+  }
   panel.classList.add("visible");
-  document.getElementById("panel-seat-name").textContent = `Ряд ${row}, место ${num}`;
+  const totalPrice = selectedSeats.reduce((sum, sid) => sum + price(sid[4]), 0);
+  const names = selectedSeats.map(sid => sid).join(", ");
+  document.getElementById("panel-seat-name").textContent = selectedSeats.length === 1
+    ? `${selectedSeats[0]}` : `${selectedSeats.length} места: ${selectedSeats.map(s => s.replace("Ряд ","р.").replace(" Место "," м.")).join(", ")}`;
   document.getElementById("panel-seat-meta").textContent =
-    `${isVip(row) ? "VIP зона" : "Стандарт"} · ${price(row)}₽`;
+    `Итого: ${selectedSeats.reduce((s, sid) => { const r = sid.match(/Ряд (\S+)/)?.[1]||""; return s + price(r); }, 0)}₽`;
 }
 
 document.getElementById("btn-book").onclick = () => {
-  if (!selectedSeat) return;
-  const row = selectedSeat[0];
-  const num = selectedSeat.slice(1);
+  if (!selectedSeats.length) return;
+  const totalPrice = selectedSeats.reduce((s, sid) => { const r = sid.match(/Ряд (\S+)/)?.[1]||""; return s + price(r); }, 0);
+  const seatList = selectedSeats.map(s => s.replace("Ряд ","р.").replace(" Место "," м.")).join(", ");
   document.getElementById("modal-book-sub").textContent =
-    `Ряд ${row}, место ${num} · ${isVip(row) ? "VIP" : "Стандарт"} · ${price(row)}₽`;
+    `${selectedSeats.length > 1 ? selectedSeats.length + " места: " + seatList : selectedSeats[0]} · ${totalPrice}₽`;
   document.getElementById("modal-pay-info").innerHTML =
-    `💳 После бронирования переведите <strong>${price(row)}₽</strong> по СБП:<br>
+    `💳 После бронирования переведите <strong>${totalPrice}₽</strong> по СБП:<br>
     <strong style="font-size:17px;letter-spacing:2px">${CONFIG.PAYMENT_PHONE}</strong><br>
     <span style="font-size:11px">${CONFIG.PAYMENT_BANK} · В комментарии укажите код из билета</span>`;
   document.getElementById("input-phone").value = "";
   document.getElementById("input-name").value = "";
+  document.getElementById("input-email").value = "";
   openModal("modal-book");
 };
 
 async function submitBooking() {
   const phone = document.getElementById("input-phone").value.trim();
-const name = document.getElementById("input-name").value.trim();
-const email = document.getElementById("input-email").value.trim();
-if (!phone || !name || !email) { showToast("Заполните все поля"); return; }
+  const name = document.getElementById("input-name").value.trim();
+  const email = document.getElementById("input-email").value.trim();
+  if (!phone || !name || !email) { showToast("Заполните все поля"); return; }
   const btn = document.getElementById("btn-submit-book");
   btn.disabled = true; btn.textContent = "Отправляем...";
 
-  const row = selectedSeat[0];
-  const num = selectedSeat.slice(1);
-  const code = Math.random().toString(36).slice(2,8).toUpperCase();
+  const groupCode = Math.random().toString(36).slice(2,8).toUpperCase();
+  const totalPrice = selectedSeats.reduce((s, sid) => { const r = sid.match(/Ряд (\S+)/)?.[1]||""; return s + price(r); }, 0);
 
   try {
-    const res = await fetch(CONFIG.SCRIPT_URL, {
-      method: "POST",
-      body: JSON.stringify({
-        action: "book",
-        seatId: selectedSeat,
-        name, phone, email, code,
-        film: CONFIG.FILM,
-        date: CONFIG.DATE,
-        time: CONFIG.TIME,
-        price: price(row)
-      })
-    });
-    const data = await res.json();
-    if (data.ok) {
-      allSeats[selectedSeat] = "pending";
-      closeModal("modal-book");
-      showTicket({ seatId: selectedSeat, row, num, name, phone, code, film: CONFIG.FILM, date: CONFIG.DATE, time: CONFIG.TIME, price: price(row) });
-      selectedSeat = null;
-      renderMap();
-    } else {
-      showToast(data.error || "Место уже занято, выберите другое");
+    // Бронируем каждое место с одним групповым кодом
+    for (const seatId of selectedSeats) {
+      const r = seatId.match(/Ряд (\S+)/)?.[1] || "";
+      const seatCode = selectedSeats.length > 1 ? groupCode + "_" + selectedSeats.indexOf(seatId) : groupCode;
+      const res = await fetch(CONFIG.SCRIPT_URL, {
+        method: "POST",
+        body: JSON.stringify({
+          action: "book",
+          seatId, name, phone, email,
+          code: seatCode,
+          groupCode,
+          film: CONFIG.FILM, date: CONFIG.DATE, time: CONFIG.TIME,
+          price: price(r)
+        })
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        showToast(`${seatId}: ${data.error || "Ошибка бронирования"}`);
+        btn.disabled = false; btn.textContent = "ПОЛУЧИТЬ МЕСТО";
+        return;
+      }
+      allSeats[seatId] = "pending";
     }
+    closeModal("modal-book");
+    showTicketMulti({ seats: selectedSeats, name, phone, email, code: groupCode, film: CONFIG.FILM, date: CONFIG.DATE, time: CONFIG.TIME, totalPrice });
+    selectedSeats = [];
+    renderMap();
   } catch(e) {
     showToast("Ошибка соединения, попробуйте снова");
   }
   btn.disabled = false; btn.textContent = "ПОЛУЧИТЬ МЕСТО";
 }
 
-function showTicket(t) {
-  const vip = isVip(t.row);
+function showTicketMulti(t) {
+  const seatsHtml = t.seats.map(s => {
+    const r = s.match(/Ряд (\S+)/)?.[1] || "";
+    const n = s.match(/Место (\S+)/)?.[1] || "";
+    return `<div class="ticket-field"><div class="tf-label">МЕСТО</div><div class="tf-value">${s}</div></div>`;
+  }).join("");
+
+  // QR содержит: код+фильм+дата — для сканера
+  const qrData = `СЕАНС|${t.code}|${t.film}|${t.date}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(qrData)}&bgcolor=13111a&color=c9a84c&margin=10`;
+
   document.getElementById("ticket-display").innerHTML = `
     <div class="ticket-head">
       <div class="ticket-brand">СЕАНС · CINEMA PRIVÉE</div>
@@ -634,23 +669,25 @@ function showTicket(t) {
       <div class="ticket-date">${t.date} · ${t.time}</div>
     </div>
     <div class="ticket-body">
-      <div class="ticket-field"><div class="tf-label">РЯД</div><div class="tf-value">${t.row}</div></div>
-      <div class="ticket-field"><div class="tf-label">МЕСТО</div><div class="tf-value">${t.num}</div></div>
-      <div class="ticket-field"><div class="tf-label">ТИП</div><div class="tf-value">${vip ? "VIP" : "Стандарт"}</div></div>
-      <div class="ticket-field"><div class="tf-label">СУММА</div><div class="tf-value">${t.price}₽</div></div>
+      ${seatsHtml}
+      <div class="ticket-field"><div class="tf-label">СУММА</div><div class="tf-value">${t.totalPrice}₽</div></div>
       <div class="ticket-field"><div class="tf-label">ИМЯ</div><div class="tf-value" style="font-size:14px">${t.name}</div></div>
       <div class="ticket-field"><div class="tf-label">ТЕЛЕФОН</div><div class="tf-value" style="font-size:14px">${t.phone}</div></div>
     </div>
     <div class="ticket-foot">
       <div class="ticket-code-label">КОД БРОНИ</div>
       <div class="ticket-code">${t.code}</div>
+      <div style="margin:14px 0 6px">
+        <img src="${qrUrl}" style="border-radius:8px;width:120px;height:120px" alt="QR">
+      </div>
+      <div style="font-size:9px;letter-spacing:2px;color:#4a4040;margin-bottom:10px">QR-КОД ДЛЯ ВХОДА</div>
       <div class="ticket-status pending">
         <span class="waiting-pulse"></span>Ожидает подтверждения оплаты
       </div>
     </div>`;
   document.getElementById("ticket-pay-info").innerHTML = `
     <div class="pay-info-title">КАК ОПЛАТИТЬ</div>
-    <p>Переведите <strong>${t.price}₽</strong> по СБП на номер:</p>
+    <p>Переведите <strong>${t.totalPrice}₽</strong> по СБП на номер:</p>
     <p class="phone-big">${CONFIG.PAYMENT_PHONE}</p>
     <p style="font-size:11px;margin-top:6px">${CONFIG.PAYMENT_BANK}<br>
     В комментарии укажите код: <strong>${t.code}</strong></p>
@@ -679,7 +716,7 @@ function hideAdmin() {
 }
 
 function renderAdmin() {
-  const total = CONFIG.ROWS.length * CONFIG.SEATS_PER_ROW;
+  const total = CONFIG.ROWS.reduce((s, r) => s + (CONFIG.ROW_SEATS[r]?.length || CONFIG.SEATS_PER_ROW), 0);
   const taken = Object.values(allSeats).filter(s => s === "taken").length;
   const pending = Object.values(allSeats).filter(s => s === "pending").length;
   const free = total - taken - pending;
@@ -689,20 +726,25 @@ function renderAdmin() {
     <div class="admin-stat"><div class="as-num">${free}</div><div class="as-label">СВОБОДНО</div></div>`;
 
   const list = document.getElementById("admin-bookings");
-  if (!bookings.length) {
+  const activeBookings = bookings.filter(b => b.status !== "cancelled");
+  if (!activeBookings.length) {
     list.innerHTML = '<div class="empty-state">Брони пока нет</div>'; return;
   }
-  list.innerHTML = bookings.map(b => {
+  list.innerHTML = activeBookings.map(b => {
     const isPending = b.status === "pending";
+    const isConfirmed = b.status === "confirmed" || b.status === "taken";
     return `<div class="booking-row ${isPending ? "pending-row" : "confirmed-row"}">
-      <div class="br-seat">${b.seatId}</div>
+      <div class="br-seat" style="font-size:13px">${b.seatId}</div>
       <div class="br-info">${b.name}<br>${b.phone}<br><span class="br-code">${b.code}</span></div>
-      <div style="font-size:11px;color:var(--muted);text-align:right">${b.price}₽<br>${b.date}</div>
-      ${isPending
-        ? `<button class="btn-confirm" onclick="confirmBooking('${b.code}')">✓ Подтвердить</button>
-           <button class="btn-cancel-book" onclick="cancelBooking('${b.code}','${b.seatId}')">✕</button>`
-        : `<span style="font-size:11px;color:#60c878;letter-spacing:1px">✓ Оплачено</span>`
-      }
+      <div style="font-size:11px;color:var(--muted);text-align:right">${b.price}₽<br>${b.date || CONFIG.DATE}</div>
+      <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">
+        ${isPending
+          ? `<button class="btn-confirm" onclick="confirmBooking('${b.code}')">✓ Подтвердить</button>
+             <button class="btn-cancel-book" onclick="cancelBooking('${b.code}','${b.seatId}')">✕ Отменить</button>`
+          : `<span style="font-size:11px;color:#60c878;letter-spacing:1px">✓ Оплачено</span>`
+        }
+        <button class="btn-resend" onclick="resendTicket('${b.code}')" title="Переотправить билет на email">✉ Билет</button>
+      </div>
     </div>`;
   }).join("");
 }
@@ -723,6 +765,7 @@ async function confirmBooking(code) {
 }
 
 async function cancelBooking(code, seatId) {
+  if (!confirm(`Отменить бронь ${code}? Место станет свободным.`)) return;
   try {
     const res = await fetch(CONFIG.SCRIPT_URL, {
       method: "POST",
@@ -730,11 +773,31 @@ async function cancelBooking(code, seatId) {
     });
     const data = await res.json();
     if (data.ok) {
-      bookings = bookings.filter(x => x.code !== code);
-      delete allSeats[seatId];
-      renderAdmin(); renderMap(); showToast("Бронь отменена");
+      // Помечаем бронь как отменённую и полностью удаляем место из allSeats
+      const b = bookings.find(x => x.code === code);
+      if (b) b.status = "cancelled";
+      delete allSeats[seatId]; // место снова свободно
+      renderAdmin(); renderMap(); showToast("Бронь отменена, место освобождено");
     }
   } catch(e) { showToast("Ошибка"); }
+}
+
+async function resendTicket(code) {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = "...";
+  try {
+    const res = await fetch(CONFIG.SCRIPT_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "resend", code })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast("✉ Билет отправлен на email");
+    } else {
+      showToast(data.error || "Ошибка отправки");
+    }
+  } catch(e) { showToast("Ошибка соединения"); }
+  btn.disabled = false; btn.textContent = "✉ Билет";
 }
 
 // ── Helpers ──
