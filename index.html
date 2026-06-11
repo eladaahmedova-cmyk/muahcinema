@@ -755,41 +755,22 @@ function renderAdmin() {
   if (!activeBookings.length) {
     list.innerHTML = '<div class="empty-state">Брони пока нет</div>'; return;
   }
-
-  // Группируем по groupCode (или по code если одиночная бронь)
-  const groups = {};
-  activeBookings.forEach(b => {
-    const gkey = b.groupCode || b.code;
-    if (!groups[gkey]) groups[gkey] = [];
-    groups[gkey].push(b);
-  });
-
-  list.innerHTML = Object.entries(groups).map(([gkey, seats]) => {
-    const first = seats[0];
-    const isPending = seats.some(b => b.status === "pending");
-    const totalPrice = seats.reduce((s, b) => s + Number(b.price || 0), 0);
-    const seatsList = seats.map(b => b.seatId).join(", ");
-    const allCodes = seats.map(b => b.code).join(",");
-
+  list.innerHTML = activeBookings.map(b => {
+    const isPending = b.status === "pending";
+    const isConfirmed = b.status === "confirmed" || b.status === "taken";
     return `<div class="booking-row ${isPending ? "pending-row" : "confirmed-row"}">
-      <div style="flex:1;min-width:0">
-        <div style="font-size:13px;color:var(--gold);font-weight:600;margin-bottom:3px">${seatsList}</div>
-        <div style="font-size:13px;color:#f2ead8">${first.name}</div>
-        <div style="font-size:11px;color:var(--muted)">${first.phone}</div>
-        <div style="font-size:10px;color:#4a4040;letter-spacing:1px;margin-top:2px">${gkey}</div>
-      </div>
-      <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:5px">
-        <div style="font-size:13px;color:#f2ead8">${totalPrice}₽</div>
+      <div class="br-seat" style="font-size:13px">${b.seatId}</div>
+      <div class="br-info">${b.name}<br>${b.phone}<br><span class="br-code">${b.code}</span></div>
+      <div style="font-size:11px;color:var(--muted);text-align:right">${b.price}₽<br>${b.date || CONFIG.DATE}</div>
+      <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">
         ${isPending
-          ? `<button class="btn-confirm" onclick="confirmBooking('${gkey}','${allCodes}')">✓ Подтвердить</button>
-             <button class="btn-cancel-book" onclick="cancelGroup('${allCodes}','${seatsList}')">✕ Отменить</button>`
+          ? `<button class="btn-confirm" onclick="confirmBooking('${b.code}')">✓ Подтвердить</button>
+             <button class="btn-cancel-book" onclick="cancelBooking('${b.code}','${b.seatId}')">✕ Отменить</button>`
           : `<span style="font-size:11px;color:#60c878;letter-spacing:1px">✓ Оплачено</span>`
         }
-        <button class="btn-resend" onclick="resendTicket('${gkey}')" title="Переотправить билеты на email">✉ Билеты</button>
+        <button class="btn-resend" onclick="resendTicket('${b.code}')" title="Переотправить билет на email">✉ Билет</button>
       </div>
     </div>`;
-  }).join("");
-}
   }).join("");
 }
 
@@ -861,6 +842,7 @@ setInterval(loadSeats, 30000);
 </script>
 </body>
 </html>
+
 
 
 
