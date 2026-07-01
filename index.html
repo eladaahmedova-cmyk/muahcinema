@@ -642,28 +642,42 @@ async function submitBooking() {
   const groupCode = Math.random().toString(36).slice(2,8).toUpperCase();
   const totalPrice = selectedSeats.reduce((s, sid) => s + price(seatRow(sid)), 0);
 
+  const seatsPayload = selectedSeats.map((seatId, idx) => ({
+    seatId,
+    code: selectedSeats.length > 1 ? groupCode + "_" + idx : groupCode,
+    price: price(seatRow(seatId))
+  }));
+
   try {
-    // Бронируем каждое место с одним групповым кодом
-    for (const seatId of selectedSeats) {
-      const r = seatId.match(/Ряд (\S+)/)?.[1] || "";
-      const seatCode = selectedSeats.length > 1 ? groupCode + "_" + selectedSeats.indexOf(seatId) : groupCode;
-      const res = await fetch(CONFIG.SCRIPT_URL, {
-        method: "POST",
-        body: JSON.stringify({
-          action: "book",
-          seatId, name, phone, email,
-          code: seatCode,
-          groupCode,
-          film: CONFIG.FILM, date: CONFIG.DATE, time: CONFIG.TIME,
-          price: price(seatRow(seatId))
-        })
-      });
-      const data = await res.json();
-      if (!data.ok) {
-        showToast(`${seatId}: ${data.error || "Ошибка бронирования"}`);
-        btn.disabled = false; btn.textContent = "ПОЛУЧИТЬ МЕСТО";
-        return;
-      }
+    const res = await fetch(CONFIG.SCRIPT_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "bookGroup",
+        seats: seatsPayload,
+        name, phone, email, groupCode,
+        film: CONFIG.FILM, date: CONFIG.DATE, time: CONFIG.TIME
+      })
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      showToast(data.error || "Ошибка бронирования");
+      btn.disabled = false; btn.textContent = "ПОЛУЧИТЬ МЕСТО";
+      await loadSeats(); // обновим карту на случай, если кто-то успел занять место
+      return;
+    }
+
+    selectedSeats.forEach(sid => { allSeats[sid] = "pending"; });
+    closeModal("modal-book");
+    showTicketMulti({ seats: selectedSeats, name, phone, email, code: groupCode, film: CONFIG.FILM, date: CONFIG.DATE, time: CONFIG.TIME, totalPrice });
+    selectedSeats = [];
+    renderMap();
+  } catch(e) {
+    showToast("Ошибка соединения, попробуйте снова");
+    await loadSeats();
+  }
+  btn.disabled = false; btn.textContent = "ПОЛУЧИТЬ МЕСТО";
+}
       allSeats[seatId] = "pending";
     }
     closeModal("modal-book");
